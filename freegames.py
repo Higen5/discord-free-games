@@ -174,6 +174,7 @@ def save_seen(path, seen):
 
 
 EMBED_LIMIT = 10          # Discord'un bir mesajdaki embed sınırı
+CONTENT_LIMIT = 1900      # content sınırı 2000; pay bırakıyoruz
 COLOR_FREE = 0x57F287     # Discord yeşili
 STORE_ORDER = ["Epic", "Steam", "GOG"]
 
@@ -210,10 +211,15 @@ def new_games_payloads(games):
     return payloads
 
 
-def weekly_payload(games):
-    """Haftalık özet: mağazaya göre gruplanmış tek mesaj."""
+def weekly_payloads(games):
+    """Haftalık özet: mağazaya göre gruplanmış liste.
+
+    Discord'un content sınırı 2000 karakter olduğu için liste uzunsa
+    birden fazla mesaja bölünür; tek mesaja sığdırmaya çalışmak uzun
+    haftalarda özetin tamamen reddedilmesine yol açar.
+    """
     if not games:
-        return {"content": "📅 **Haftalık özet** — şu anda ücretsiz oyun yok."}
+        return [{"content": "📅 **Haftalık özet** — şu anda ücretsiz oyun yok."}]
 
     lines = ["📅 **Haftalık özet — şu anda ücretsiz olanlar**"]
     for store in STORE_ORDER:
@@ -227,7 +233,19 @@ def weekly_payload(games):
                 unix = int(datetime.fromisoformat(game.ends_at).timestamp())
                 suffix = f" — bitiş <t:{unix}:R>"
             lines.append(f"• [{game.title}](<{game.url}>){suffix}")
-    return {"content": "\n".join(lines)}
+
+    payloads = []
+    chunk = []
+    size = 0
+    for line in lines:
+        if chunk and size + len(line) + 1 > CONTENT_LIMIT:
+            payloads.append({"content": "\n".join(chunk)})
+            chunk, size = [], 0
+        chunk.append(line)
+        size += len(line) + 1
+    if chunk:
+        payloads.append({"content": "\n".join(chunk)})
+    return payloads
 
 
 def post_discord(webhook, payload):
@@ -325,7 +343,7 @@ def main(argv=None):
 
     payloads = list(new_games_payloads(fresh)) if fresh else []
     if args.force_weekly or is_weekly_time(now):
-        payloads.append(weekly_payload(games))
+        payloads.extend(weekly_payloads(games))
 
     if not payloads:
         print("Yeni bir şey yok.")
@@ -527,15 +545,27 @@ def _self_test():
     assert "content" in payloads[0] and payloads[0]["content"]
     assert "content" not in payloads[1]  # başlık sadece ilk mesajda
 
-    # --- weekly_payload: mağazaya göre gruplanmış tek mesaj ---
-    weekly = weekly_payload([game, bare])
-    text = weekly["content"]
+    # --- weekly_payloads: mağazaya göre gruplanmış mesaj(lar) ---
+    weekly = weekly_payloads([game, bare])
+    assert len(weekly) == 1, len(weekly)
+    text = weekly[0]["content"]
     assert "Epic" in text and "Steam" in text
     assert "Beacon Pines" in text and "Dwarven Realms" in text
-    assert weekly["content"].index("Epic") < weekly["content"].index("Steam")
+    assert text.index("Epic") < text.index("Steam")
 
     # Hiç oyun yoksa da anlamlı bir mesaj çıkmalı
-    assert weekly_payload([])["content"]
+    assert weekly_payloads([])[0]["content"]
+
+    # Uzun liste Discord'un 2000 karakterlik content sınırına bölünmeli
+    lots = [Game(f"k{i}", f"Oldukça Uzun Bir Oyun Adı Numara {i}", "Epic",
+                 f"https://store.epicgames.com/tr/p/oldukca-uzun-bir-oyun-adi-{i}", "", "")
+            for i in range(60)]
+    parts = weekly_payloads(lots)
+    assert len(parts) > 1, len(parts)
+    assert all(len(p["content"]) <= 2000 for p in parts), [len(p["content"]) for p in parts]
+    # Bölünme sırasında hiçbir oyun düşmemeli
+    birlesik = "\n".join(p["content"] for p in parts)
+    assert all(f"Numara {i}]" in birlesik for i in range(60))
 
     # --- is_weekly_time: Pazartesi 09:00 TSİ (= 06:00 UTC) ---
     # Cron saat başı çalışır, bu yüzden pencere tam bir saat genişliğinde.
