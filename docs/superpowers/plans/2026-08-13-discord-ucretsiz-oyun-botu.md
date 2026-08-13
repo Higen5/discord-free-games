@@ -953,8 +953,11 @@ sızmadığını doğrula.
 - [ ] **Step 1: Git geçmişini tara**
 
 ```bash
-git log -p --all | grep -i -E "discord\.com/api/webhooks|discordapp\.com/api/webhooks"
+git log -p --all | grep -iE "discord(app)?\.com/api/webhooks/[0-9]{5,}/[A-Za-z0-9_-]{10,}"
 ```
+
+Desen id ve token kısmını da arar; yalnızca `discord.com/api/webhooks` aramak
+bu dokümanların kendi metnini yakalayıp yanlış alarm verir.
 
 Beklenen: **hiçbir çıktı olmamalı.** Çıktı varsa depo public yapılmamalı; önce
 Discord'da webhook silinip yenisi oluşturulmalı ve secret güncellenmeli.

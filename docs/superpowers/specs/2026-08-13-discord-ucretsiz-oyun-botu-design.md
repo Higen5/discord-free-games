@@ -148,7 +148,8 @@ Actions kotası: private'ken aylık 2000 dakikalık ücretsiz kotadan yiyor (saa
 - `.env` ilk commit'ten itibaren `.gitignore`'da — webhook lokalde sadece bu dosyada durur
 - Üretimde değer GitHub repository secret'ında (`DISCORD_WEBHOOK_URL`), kodda veya workflow YAML'ında düz metin olarak geçmez
 - Actions loglarına sızmaması için script webhook URL'ini hiçbir hata mesajında basmaz
-- Public'e geçmeden önce geçmiş taranır: `git log -p | grep -i "discord.com/api/webhooks"` boş dönmeli
+- Public'e geçmeden önce geçmiş taranır (desen id/token içerir, yoksa bu satırın kendisi eşleşir):
+  `git log -p --all | grep -iE "discord(app)?\.com/api/webhooks/[0-9]{5,}/[A-Za-z0-9_-]{10,}"` boş dönmeli
 
 URL sızarsa çözüm basit: Discord'da webhook'u sil, yenisini oluştur, secret'ı güncelle.
 
