@@ -1,0 +1,36 @@
+name: Ücretsiz oyun kontrolü
+
+on:
+  schedule:
+    # Her saatin 5. dakikasında (UTC). Pazartesi 06:05 UTC = 09:05 TSİ,
+    # haftalık özetin çıktığı saat.
+    - cron: "5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # seen.json'u geri commit edebilmek için
+
+concurrency:
+  group: freegames  # üst üste binen çalışmalar seen.json'da çakışmasın
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ücretsiz oyunları kontrol et
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python3 freegames.py
+
+      - name: Durum dosyasını kaydet
+        run: |
+          if [ -n "$(git status --porcelain seen.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add seen.json
+            git commit -m "chore: seen.json güncellendi"
+            git push
+          fi
