@@ -105,7 +105,7 @@ Dosyayı GitHub Actions her çalışmada geri commit eder.
 
 Discord webhook'una `POST`, `embeds` alanı kullanılarak:
 
-- **Anlık:** her oyun için bir embed — başlık, mağaza, normal fiyatı, bitiş tarihi, mağaza linki
+- **Anlık:** her oyun için bir embed — başlık, mağaza, normal fiyatı, bitiş tarihi, mağaza linki ve sağ üstte küçük kapak görseli (Epic'te `keyImages` içindeki `Thumbnail`, GamerPower'da `thumbnail` alanı; görsel yoksa alan hiç eklenmez)
 - **Haftalık:** tek mesaj, mağazaya göre gruplanmış liste
 
 Discord bir mesajda en fazla 10 embed kabul eder; fazlası varsa mesaj bölünür.

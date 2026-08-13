@@ -34,6 +34,7 @@ class Game:
     url: str
     worth: str      # "₺149,00" / "$9.99" / "" (bilinmiyorsa)
     ends_at: str    # ISO 8601 UTC / "" (süresizse)
+    image: str = ""  # embed'de küçük kapak görseli / "" (yoksa)
 
 
 def fetch_json(url):
@@ -56,6 +57,17 @@ def _epic_slug(element):
         if mapping.get("pageSlug"):
             return mapping["pageSlug"]
     return element.get("productSlug") or element.get("urlSlug") or ""
+
+
+def _epic_image(element):
+    """Kapak görseli. Dikey 'Thumbnail' embed'de en iyi duran seçenek;
+    yoksa sırayla diğer tiplere düşer."""
+    images = {image.get("type"): image.get("url")
+              for image in (element.get("keyImages") or []) if image.get("url")}
+    for kind in ("Thumbnail", "OfferImageTall", "OfferImageWide", "featuredMedia"):
+        if images.get(kind):
+            return images[kind]
+    return ""
 
 
 def parse_epic(payload, now):
@@ -88,6 +100,7 @@ def parse_epic(payload, now):
                     url=f"https://store.epicgames.com/tr/p/{slug}",
                     worth=total.get("fmtPrice", {}).get("originalPrice", ""),
                     ends_at=end.isoformat(),
+                    image=_epic_image(element),
                 ))
     return games
 
@@ -124,6 +137,7 @@ def parse_gamerpower(items, now):
             url=item["open_giveaway_url"],
             worth="" if worth == "N/A" else worth,
             ends_at=ends_at,
+            image=item.get("thumbnail", ""),
         ))
     return games
 
@@ -189,13 +203,16 @@ def game_embed(game):
         # <t:...:R> Discord'un göreli zaman etiketi: "3 gün içinde" diye
         # ve her kullanıcının kendi saat diliminde görünür.
         fields.append({"name": "Son tarih", "value": f"<t:{unix}:R>", "inline": True})
-    return {
+    embed = {
         "title": game.title,
         "url": game.url,
         "description": f"**{game.store}**",
         "color": COLOR_FREE,
         "fields": fields,
     }
+    if game.image:
+        embed["thumbnail"] = {"url": game.image}
+    return embed
 
 
 def new_games_payloads(games):
@@ -380,6 +397,10 @@ def _self_test():
             "productSlug": None,
             "offerMappings": [{"pageSlug": "beacon-pines-629fc3"}],
             "catalogNs": {"mappings": [{"pageSlug": "beacon-pines-629fc3"}]},
+            "keyImages": [
+                {"type": "OfferImageWide", "url": "https://cdn1.epicgames.com/wide.jpg"},
+                {"type": "Thumbnail", "url": "https://cdn1.epicgames.com/thumb.jpg"},
+            ],
             "price": {"totalPrice": {"originalPrice": 14900, "discountPrice": 0,
                                      "fmtPrice": {"originalPrice": "₺149,00"}}},
             "promotions": {"promotionalOffers": [{"promotionalOffers": [{
@@ -425,6 +446,8 @@ def _self_test():
     assert g.key == "epic:beacon-pines-629fc3", g.key
     assert g.worth == "₺149,00", g.worth
     assert g.ends_at == "2026-08-13T15:00:00+00:00", g.ends_at
+    # Thumbnail, geniş görsele tercih edilmeli
+    assert g.image == "https://cdn1.epicgames.com/thumb.jpg", g.image
 
     # productSlug null geldiğinde offerMappings'ten slug alınmalı (yukarıda doğrulandı).
     # Hiçbiri yoksa urlSlug'a düşmeli:
@@ -439,6 +462,8 @@ def _self_test():
             "discountSetting": {"discountPercentage": 0}}]}]},
     }]}}}}
     assert parse_epic(fallback, now)[0].url.endswith("/yedek-slug")
+    # keyImages hiç yoksa çökmemeli, görsel boş kalmalı
+    assert parse_epic(fallback, now)[0].image == ""
 
     # Promosyonu olmayan / fiyatı zaten 0 olan (free-to-play) girdi elenmeli
     f2p = {"data": {"Catalog": {"searchStore": {"elements": [{
@@ -473,7 +498,8 @@ def _self_test():
     gp_items = [
         {"id": 3742, "title": "Cat Named Mojave (Epic Games) Giveaway", "worth": "$9.99",
          "platforms": "PC, Epic Games Store", "end_date": "2026-08-31 23:59:00",
-         "status": "Active", "open_giveaway_url": "https://www.gamerpower.com/open/cat"},
+         "status": "Active", "open_giveaway_url": "https://www.gamerpower.com/open/cat",
+         "thumbnail": "https://www.gamerpower.com/offers/1/cat.jpg"},
         {"id": 3700, "title": "Dwarven Realms (Steam) Giveaway", "worth": "N/A",
          "platforms": "PC, Steam", "end_date": "N/A", "status": "Active",
          "open_giveaway_url": "https://www.gamerpower.com/open/dwarven"},
@@ -496,6 +522,8 @@ def _self_test():
     assert gp[0].url == "https://www.gamerpower.com/open/cat"
     assert gp[0].worth == "$9.99"
     assert gp[0].ends_at == "2026-08-31T23:59:00+00:00", gp[0].ends_at
+    assert gp[0].image == "https://www.gamerpower.com/offers/1/cat.jpg", gp[0].image
+    assert gp[1].image == "", gp[1].image  # thumbnail alanı yoksa boş
     assert gp[1].store == "Steam"
     assert gp[1].worth == "", gp[1].worth      # "N/A" boşa çevrilir
     assert gp[1].ends_at == "", gp[1].ends_at  # "N/A" boşa çevrilir
@@ -524,9 +552,10 @@ def _self_test():
     # --- game_embed ---
     game = Game("epic:beacon-pines", "Beacon Pines", "Epic",
                 "https://store.epicgames.com/tr/p/beacon-pines", "₺149,00",
-                "2026-08-20T15:00:00+00:00")
+                "2026-08-20T15:00:00+00:00", "https://cdn1.epicgames.com/thumb.jpg")
     emb = game_embed(game)
     assert emb["title"] == "Beacon Pines"
+    assert emb["thumbnail"] == {"url": "https://cdn1.epicgames.com/thumb.jpg"}
     assert emb["url"] == game.url
     assert "Epic" in emb["description"]
     names = [f["name"] for f in emb["fields"]]
@@ -537,6 +566,8 @@ def _self_test():
     # Fiyat ve tarih bilinmiyorsa o alanlar hiç eklenmemeli
     bare = Game("gp:1", "Dwarven Realms", "Steam", "https://x", "", "")
     assert game_embed(bare)["fields"] == []
+    # Görsel yoksa thumbnail anahtarı hiç eklenmemeli
+    assert "thumbnail" not in game_embed(bare)
 
     # --- new_games_payloads: Discord bir mesajda en fazla 10 embed alır ---
     many = [Game(f"k{i}", f"Oyun {i}", "Epic", "https://x", "", "") for i in range(23)]
