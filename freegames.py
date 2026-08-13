@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Epic, Steam ve GOG'daki ücretsiz oyunları Discord kanalına bildirir."""
 
+import argparse
 import json
+import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -254,6 +257,99 @@ def post_discord(webhook, payload):
         raise RuntimeError(f"Discord webhook hatası: HTTP {error.code}") from None
 
 
+WEEKLY_WEEKDAY = 0   # Pazartesi
+WEEKLY_HOUR = 9      # TSİ
+
+
+def is_weekly_time(now):
+    """Haftalık özetin çıkacağı saat mi? Cron saat başı çalıştığı için
+    bu pencere bir saatlik ve haftada tam bir kez yakalanır."""
+    local = now.astimezone(TZ)
+    return local.weekday() == WEEKLY_WEEKDAY and local.hour == WEEKLY_HOUR
+
+
+def collect(now):
+    """İki kaynağı çeker, birleştirir, tekilleştirir.
+
+    Bir kaynak çökerse diğeriyle devam edilir. İkisi birden çökerse
+    istisna fırlatılır — yoksa "hiç oyun yok" sanılıp durum dosyası
+    yanlış güncellenir.
+    """
+    games = []
+    failures = []
+
+    try:
+        games += parse_epic(fetch_json(EPIC_URL), now)
+    except Exception as error:            # ağ, JSON veya şema değişikliği
+        failures.append(f"Epic: {error}")
+
+    try:
+        payload = fetch_json(GAMERPOWER_URL)
+        # Kampanya yokken GamerPower liste yerine {"status": 0, ...} döner
+        if isinstance(payload, list):
+            games += parse_gamerpower(payload, now)
+    except Exception as error:
+        failures.append(f"GamerPower: {error}")
+
+    for failure in failures:
+        print(f"UYARI: {failure}", file=sys.stderr)
+    if len(failures) == 2:
+        raise RuntimeError("Kaynakların hiçbirine ulaşılamadı")
+
+    return dedupe(games)  # Epic önce eklendiği için çakışmada Epic kazanır
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Ücretsiz oyunları Discord'a bildirir.")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Discord'a göndermeden mesajları ekrana bas")
+    parser.add_argument("--force-weekly", action="store_true",
+                        help="Pazartesi beklemeden haftalık özeti üret")
+    parser.add_argument("--self-test", action="store_true",
+                        help="Ağ gerektirmeyen iç testleri çalıştır")
+    args = parser.parse_args(argv)
+
+    if args.self_test:
+        return _self_test()
+
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if not webhook and not args.dry_run:
+        print("HATA: DISCORD_WEBHOOK_URL tanımlı değil", file=sys.stderr)
+        return 1
+
+    now = datetime.now(timezone.utc)
+    games = collect(now)
+
+    seen = prune_seen(load_seen(SEEN_FILE), now)
+    fresh = [game for game in games if game.key not in seen]
+
+    payloads = list(new_games_payloads(fresh)) if fresh else []
+    if args.force_weekly or is_weekly_time(now):
+        payloads.append(weekly_payload(games))
+
+    if not payloads:
+        print("Yeni bir şey yok.")
+        return 0
+
+    if args.dry_run:
+        for payload in payloads:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    # Gönderim başarısız olursa seen.json'a DOKUNULMAZ; bir sonraki
+    # çalışma aynı oyunları tekrar dener.
+    for payload in payloads:
+        post_discord(webhook, payload)
+
+    default_end = (now + timedelta(days=DEFAULT_KEEP_DAYS)).isoformat()
+    for game in fresh:
+        seen[game.key] = game.ends_at or default_end
+    save_seen(SEEN_FILE, seen)
+
+    print(f"{len(fresh)} yeni oyun bildirildi.")
+    return 0
+
+
 def _self_test():
     now = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
 
@@ -441,9 +537,15 @@ def _self_test():
     # Hiç oyun yoksa da anlamlı bir mesaj çıkmalı
     assert weekly_payload([])["content"]
 
+    # --- is_weekly_time: Pazartesi 09:00 TSİ (= 06:00 UTC) ---
+    # Cron saat başı çalışır, bu yüzden pencere tam bir saat genişliğinde.
+    assert is_weekly_time(datetime(2026, 8, 17, 6, 5, tzinfo=timezone.utc))    # Pzt 09:05 TSİ
+    assert not is_weekly_time(datetime(2026, 8, 17, 7, 5, tzinfo=timezone.utc))  # Pzt 10:05
+    assert not is_weekly_time(datetime(2026, 8, 18, 6, 5, tzinfo=timezone.utc))  # Salı
+
     print("self-test: TAMAM")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(_self_test())
+    raise SystemExit(main())
