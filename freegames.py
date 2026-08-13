@@ -59,6 +59,16 @@ def _epic_slug(element):
     return element.get("productSlug") or element.get("urlSlug") or ""
 
 
+def _game_key(store, title):
+    """Tekrar bildirimini önleyen kimlik.
+
+    Kaynaktan (Epic API / GamerPower) BAĞIMSIZ olmalı: aynı oyun bir kaynaktan
+    düşüp diğerinde kalabiliyor. Kimlik kaynağa bağlı olsaydı bu durumda oyun
+    yeni sanılıp tekrar bildirilirdi.
+    """
+    return f"{store.lower()}:{_normalize(title)}"
+
+
 def _epic_image(element):
     """Kapak görseli. Dikey 'Thumbnail' embed'de en iyi duran seçenek;
     yoksa sırayla diğer tiplere düşer."""
@@ -94,7 +104,7 @@ def parse_epic(payload, now):
                     continue
                 slug = _epic_slug(element)
                 games.append(Game(
-                    key=f"epic:{slug}",
+                    key=_game_key("Epic", element["title"]),
                     title=element["title"],
                     store="Epic",
                     url=f"https://store.epicgames.com/tr/p/{slug}",
@@ -130,9 +140,10 @@ def parse_gamerpower(items, now):
                 continue  # süresi dolmuş, status alanı geç güncellenmiş olabilir
             ends_at = end.isoformat()
         worth = item.get("worth", "")
+        title = clean_gp_title(item["title"])
         games.append(Game(
-            key=f"gp:{item['id']}",
-            title=clean_gp_title(item["title"]),
+            key=_game_key(store, title),
+            title=title,
             store=store,
             url=item["open_giveaway_url"],
             worth="" if worth == "N/A" else worth,
@@ -443,7 +454,7 @@ def _self_test():
     g = games[0]
     assert g.store == "Epic", g.store
     assert g.url == "https://store.epicgames.com/tr/p/beacon-pines-629fc3", g.url
-    assert g.key == "epic:beacon-pines-629fc3", g.key
+    assert g.key == "epic:beaconpines", g.key
     assert g.worth == "₺149,00", g.worth
     assert g.ends_at == "2026-08-13T15:00:00+00:00", g.ends_at
     # Thumbnail, geniş görsele tercih edilmeli
@@ -517,7 +528,7 @@ def _self_test():
     titles = [g.title for g in gp]
     # Itch.io kapsam dışı, Expired elenir, bitiş tarihi geçmiş olan elenir
     assert titles == ["Cat Named Mojave", "Dwarven Realms"], titles
-    assert gp[0].key == "gp:3742", gp[0].key
+    assert gp[0].key == "epic:catnamedmojave", gp[0].key
     assert gp[0].store == "Epic", gp[0].store
     assert gp[0].url == "https://www.gamerpower.com/open/cat"
     assert gp[0].worth == "$9.99"
@@ -527,6 +538,26 @@ def _self_test():
     assert gp[1].store == "Steam"
     assert gp[1].worth == "", gp[1].worth      # "N/A" boşa çevrilir
     assert gp[1].ends_at == "", gp[1].ends_at  # "N/A" boşa çevrilir
+
+    # --- kimlik kaynaktan bağımsız olmalı ---
+    # Gerçek hata: Epic'in promosyon penceresi kapanınca oyun Epic verisinden
+    # düştü ama GamerPower'da aktif kaldı; kimlik kaynağa bağlı olduğu için
+    # aynı oyun "yeni" sanılıp tekrar bildirildi.
+    epic_kayit = parse_epic(epic_payload, now)[0]
+    ayni_oyun_gp = parse_gamerpower([{
+        "id": 9999, "title": "Beacon Pines (Epic Games) Giveaway", "worth": "$19.99",
+        "platforms": "PC, Epic Games Store", "end_date": "2026-08-14 23:59:00",
+        "status": "Active", "open_giveaway_url": "https://www.gamerpower.com/open/bp",
+    }], now)[0]
+    assert epic_kayit.key == ayni_oyun_gp.key, (epic_kayit.key, ayni_oyun_gp.key)
+
+    # Farklı mağazadaki aynı isimli oyun ayrı kimlik almalı
+    farkli_magaza = parse_gamerpower([{
+        "id": 8888, "title": "Beacon Pines (Steam) Giveaway", "worth": "$19.99",
+        "platforms": "PC, Steam", "end_date": "2026-08-14 23:59:00",
+        "status": "Active", "open_giveaway_url": "https://www.gamerpower.com/open/bp2",
+    }], now)[0]
+    assert farkli_magaza.key != epic_kayit.key
 
     # --- dedupe ---
     a = Game("epic:beacon-pines", "Beacon Pines", "Epic",
