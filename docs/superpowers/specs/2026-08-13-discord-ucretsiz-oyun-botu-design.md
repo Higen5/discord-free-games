@@ -27,7 +27,19 @@ Epic Games Store, Steam ve GOG'da ücretsiz dağıtılan oyunları takip edip Di
 https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=tr-TR&country=TR&allowCountries=TR
 ```
 
-Epic'in kendi endpoint'i. Aktif ve yaklaşan promosyonları başlangıç/bitiş tarihleriyle döner. `promotions.promotionalOffers` içinde `discountPercentage == 0` olan girdiler gerçekten ücretsiz olanlardır — bu alan "indirimden sonra kalan yüzde" anlamına gelir, yani 0 = bedava. Endpoint indirimli (ücretsiz olmayan) oyunları da döndürdüğü için bu filtre şart.
+Epic'in kendi endpoint'i. Aktif ve yaklaşan promosyonları başlangıç/bitiş tarihleriyle döner. `discountSetting.discountPercentage` alanı "indirimden sonra kalan yüzde" anlamına gelir, yani 0 = bedava.
+
+Bir oyunun **şu anda** ücretsiz sayılması için üç şart birden gerekir (canlı veriyle doğrulandı):
+
+1. Promosyon `promotions.promotionalOffers` altında olmalı — `upcomingPromotionalOffers` değil
+2. `discountSetting.discountPercentage == 0`
+3. Şu an `startDate <= now < endDate` penceresinin içinde olmalı
+
+Üçüncü şart olmazsa yanlış bildirim çıkar: doğrulama sırasında `Caravan SandWitch` ve `Cardpocalypse` girdileri `discountPercentage == 0` taşıyordu ama promosyonları henüz başlamamıştı (`upcomingPromotionalOffers`, fiyatları hâlâ tam). Sadece yüzdeye bakan bir filtre bunları "şu an bedava" diye duyururdu.
+
+Ayrıca `price.totalPrice.originalPrice > 0` şartı aranır — bu, zaten kalıcı olarak ücretsiz olan (free-to-play) oyunları promosyonlardan ayırır.
+
+**Oyun linki:** `productSlug` alanı çoğu girdide `null` geliyor. Slug sırayla `offerMappings[].pageSlug` → `catalogNs.mappings[].pageSlug` → `urlSlug` içinden ilk dolu olandan alınır. Link: `https://store.epicgames.com/tr/p/<slug>`
 
 ### GamerPower (Steam, GOG ve diğerleri)
 
@@ -37,7 +49,13 @@ https://www.gamerpower.com/api/giveaways?type=game
 
 `platforms` alanı `"PC, Steam"`, `"PC, Epic Games Store"`, `"PC, DRM-Free"` gibi değerler taşır. `type=game` filtresi kalıcı olarak sahip olunan oyunları getirir (DLC ve oyun içi eşya kampanyalarını dışarıda bırakır).
 
-**GOG notu:** Doğrulama sırasında GOG platform listesinde yoktu — GOG giveaway'leri yılda birkaç kez oluyor. GOG için ayrı bir scraper yazmıyoruz: bakım yükü ürettiği değerden büyük. GamerPower bir GOG kampanyası listelediğinde kod değişikliği olmadan yakalanacak.
+**GOG notu:** GamerPower GOG'u destekliyor, doğrulandı. `?platform=gog` sorgusu `"No active giveaways available at the moment"` döner; tanınmayan bir platform ise `"No category found"` döner. İki yanıtın farklı olması platformun geçerli olduğunu, sadece o an aktif kampanya bulunmadığını gösteriyor (GOG giveaway'leri yılda birkaç kez oluyor).
+
+Bu yüzden GOG için ayrı scraper yazılmıyor — gerekmiyor. Kaynak bir GOG kampanyası listelediğinde kod değişikliği olmadan yakalanacak.
+
+**Mağaza eşleştirmesi** `platforms` alanındaki isimle yapılır (`"Epic Games Store"`, `"Steam"`, `"GOG"`). `"DRM-Free"` etiketine güvenilmez: doğrulama sırasında DRM-Free girdilerinin tamamı IndieGala ve Itch.io çıktı, GOG değil.
+
+**Platform filtresi:** Tek istek atılır ve sonuç istemci tarafında filtrelenir; platform başına ayrı istek atmak üç HTTP çağrısı demek olurdu. Kapsanan mağazalar Epic, Steam, GOG. Itch.io, IndieGala, Ubisoft Connect ve mobil kampanyalar dışarıda bırakılır — sadece bugünkü veride 12 Itch.io/IndieGala girdisi var, bunlar dahil edilse bildirimler çöplüğe dönerdi. Liste koddaki tek bir kümede tutulur, genişletmek tek satır.
 
 ### Kaynak çakışması
 
