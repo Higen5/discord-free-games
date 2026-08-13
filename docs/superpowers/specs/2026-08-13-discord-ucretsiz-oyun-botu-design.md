@@ -1,0 +1,139 @@
+# Discord Ücretsiz Oyun Takip Botu — Tasarım
+
+**Tarih:** 2026-08-13
+**Durum:** Onay bekliyor
+
+## Amaç
+
+Epic Games Store, Steam ve GOG'da ücretsiz dağıtılan oyunları takip edip Discord'da bir kanala bildirim düşmek. İki tip mesaj:
+
+1. **Anlık** — yeni bir ücretsiz oyun görüldüğünde, en geç 1 saat içinde
+2. **Haftalık özet** — Pazartesi sabahı, o an ücretsiz olan her şeyin listesi
+
+## Kapsam dışı (bilinçli olarak)
+
+- Slash komutları, kullanıcı etkileşimi, bildirim rolleri — kullanıcı "sadece bildirim" dedi
+- Gerçek bir Discord bot süreci (gateway bağlantısı, token, izin yönetimi) — tek yönlü mesaj için webhook yeterli
+- GOG için ayrı scraper — aşağıya bakınız
+- Veritabanı — `seen.json` yeterli
+
+## Veri kaynakları
+
+İkisi de kimlik doğrulama gerektirmiyor, 2026-08-13'te canlı olarak doğrulandı.
+
+### Epic Games (birincil)
+
+```
+https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=tr-TR&country=TR&allowCountries=TR
+```
+
+Epic'in kendi endpoint'i. Aktif ve yaklaşan promosyonları başlangıç/bitiş tarihleriyle döner. `promotions.promotionalOffers` içinde `discountPercentage == 0` olan girdiler gerçekten ücretsiz olanlardır — bu alan "indirimden sonra kalan yüzde" anlamına gelir, yani 0 = bedava. Endpoint indirimli (ücretsiz olmayan) oyunları da döndürdüğü için bu filtre şart.
+
+### GamerPower (Steam, GOG ve diğerleri)
+
+```
+https://www.gamerpower.com/api/giveaways?type=game
+```
+
+`platforms` alanı `"PC, Steam"`, `"PC, Epic Games Store"`, `"PC, DRM-Free"` gibi değerler taşır. `type=game` filtresi kalıcı olarak sahip olunan oyunları getirir (DLC ve oyun içi eşya kampanyalarını dışarıda bırakır).
+
+**GOG notu:** Doğrulama sırasında GOG platform listesinde yoktu — GOG giveaway'leri yılda birkaç kez oluyor. GOG için ayrı bir scraper yazmıyoruz: bakım yükü ürettiği değerden büyük. GamerPower bir GOG kampanyası listelediğinde kod değişikliği olmadan yakalanacak.
+
+### Kaynak çakışması
+
+Epic oyunları her iki kaynakta da görünebilir. Tekilleştirme oyun başlığının normalize edilmiş hali (küçük harf, boşluklar kırpılmış) üzerinden yapılır; Epic'in kendi verisi öncelikli, çünkü tarihleri kesin.
+
+## Mimari
+
+Tek Python dosyası, sıfır üçüncü parti bağımlılık (`urllib.request` + `json` stdlib'de). Kurulum adımı yok, `requirements.txt` yok.
+
+```
+freegames.py              # tüm mantık
+seen.json                 # bildirilmiş oyunların kimlikleri
+.github/workflows/check.yml
+```
+
+### Akış
+
+```
+saatlik tetikleme
+      │
+      ├─→ Epic endpoint'i çek ──┐
+      │                          ├─→ birleştir + tekilleştir ─→ tam liste
+      └─→ GamerPower'ı çek ─────┘                                    │
+                                                                      │
+                        ┌─────────────────────────────────────────────┤
+                        │                                             │
+                  Pazartesi 09:00 mu?                    seen.json'da olmayanlar
+                        │                                             │
+                  haftalık özet mesajı                      anlık bildirim mesajı
+                        │                                             │
+                        └──────────→ Discord webhook ←────────────────┘
+                                                                      │
+                                                            seen.json güncelle + commit
+```
+
+Pazartesi çalışmasında hem yeni oyun bildirimi hem haftalık özet çıkabilir; ikisi ayrı mesaj olarak gider.
+
+### Tekrar bildirimi önleme
+
+`seen.json` bildirilmiş oyunların kimliklerini tutar. Kimlik = `kaynak:normalize edilmiş başlık` (ör. `epic:beacon pines`). Kampanya bitiş tarihi geçen girdiler dosyadan temizlenir; aynı oyun aylar sonra tekrar bedava olursa yeniden bildirilir.
+
+Zaman penceresine (ör. "son 1 saatte eklenenler") güvenmek daha az kod olurdu ama bir çalışma hata alırsa o bildirim kalıcı olarak kaçar. Dosya bunu engelliyor.
+
+Dosyayı GitHub Actions her çalışmada geri commit eder.
+
+### Mesaj biçimi
+
+Discord webhook'una `POST`, `embeds` alanı kullanılarak:
+
+- **Anlık:** her oyun için bir embed — başlık, mağaza, normal fiyatı, bitiş tarihi, mağaza linki
+- **Haftalık:** tek mesaj, mağazaya göre gruplanmış liste
+
+Discord bir mesajda en fazla 10 embed kabul eder; fazlası varsa mesaj bölünür.
+
+## Hata yönetimi
+
+- Bir kaynak hata verir/zaman aşımına uğrarsa: uyarı basılır, diğer kaynakla devam edilir. Tek kaynağın çökmesi tüm çalışmayı düşürmez.
+- **Her iki** kaynak da başarısızsa: çıkış kodu 1, `seen.json` değiştirilmez (yoksa oyunlar "bildirilmiş" sayılıp kaybolur).
+- Webhook `POST` başarısızsa: çıkış kodu 1 ve `seen.json` **kaydedilmez** — bir sonraki çalışma tekrar dener.
+- Discord rate limit (429): `Retry-After` kadar bekle, bir kez tekrar dene.
+- Ağ çağrılarında 20 saniye zaman aşımı.
+
+## Yapılandırma
+
+- `DISCORD_WEBHOOK_URL` — ortam değişkeni. GitHub'da repository secret, lokalde `.env` (`.gitignore`'da).
+- Başka ayar yok. Sabit kalacak değerler için yapılandırma yazılmayacak.
+
+## Zamanlama
+
+GitHub Actions cron, saat başı. Epic promosyonları Perşembe 18:00 (TSİ) civarı değişir; saatlik kontrol fazlasıyla yeterli, daha sıkı aralık sadece boşa çalışma üretir.
+
+Haftalık özet ayrı bir workflow değil: script çalışma anının Pazartesi 09:00 (TSİ) olup olmadığına bakar. GitHub Actions UTC kullandığı için cron UTC'ye göre yazılır.
+
+Not: GitHub Actions cron'u yoğunlukta birkaç dakika gecikebilir, ayrıca 60 gün boyunca hiç aktivite olmayan depoda zamanlanmış workflow'ları devre dışı bırakır. `seen.json` commit'leri her çalışmada aktivite ürettiği için bu sorun kendiliğinden çözülüyor.
+
+## Test
+
+- `--dry-run`: mesajları Discord'a göndermek yerine terminale basar, `seen.json`'a dokunmaz. Webhook URL'i olmadan çalışır.
+- `--force-weekly`: Pazartesi beklemeden haftalık özeti üretir (dry-run ile birlikte kullanılır).
+- Dosya içinde `assert` tabanlı bir öz-kontrol: parse mantığını sabit örnek JSON ile doğrular (Epic'in `discountPercentage == 0` filtresi, tekilleştirme, süresi dolmuş kayıtların temizlenmesi). `python freegames.py --self-test` ile çalışır, ağ erişimi gerektirmez. Test framework'ü kurulmayacak.
+
+## Depo ve gizlilik
+
+`Higen5/discord-free-games`. Geliştirme boyunca private; proje bittiğinde portfolyoda gösterilmek üzere public yapılacak.
+
+Actions kotası: private'ken aylık 2000 dakikalık ücretsiz kotadan yiyor (saatlik çalışma ~700-750 dakika, sığıyor). Public'e geçince Actions dakikası sınırsız oluyor.
+
+**Webhook URL'i git geçmişine hiçbir zaman girmemeli.** Repo sonradan public olacağı için bu kritik: geçmişe bir kez giren sır, dosya sonradan silinse bile commit geçmişinde kalır ve URL'i ele geçiren herkes kanala mesaj atabilir. Alınan önlemler:
+
+- `.env` ilk commit'ten itibaren `.gitignore`'da — webhook lokalde sadece bu dosyada durur
+- Üretimde değer GitHub repository secret'ında (`DISCORD_WEBHOOK_URL`), kodda veya workflow YAML'ında düz metin olarak geçmez
+- Actions loglarına sızmaması için script webhook URL'ini hiçbir hata mesajında basmaz
+- Public'e geçmeden önce geçmiş taranır: `git log -p | grep -i "discord.com/api/webhooks"` boş dönmeli
+
+URL sızarsa çözüm basit: Discord'da webhook'u sil, yenisini oluştur, secret'ı güncelle.
+
+## README
+
+Depo portfolyoda görüneceği için kısa bir README yazılacak: ne yaptığı, örnek mesaj görüntüsü, nasıl kurulacağı (webhook oluştur → secret ekle → workflow'u etkinleştir), kullanılan kaynaklar. Uzun dokümantasyon değil, tek sayfa.
