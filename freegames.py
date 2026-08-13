@@ -3,6 +3,7 @@
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -169,6 +170,90 @@ def save_seen(path, seen):
         handle.write("\n")
 
 
+EMBED_LIMIT = 10          # Discord'un bir mesajdaki embed sınırı
+COLOR_FREE = 0x57F287     # Discord yeşili
+STORE_ORDER = ["Epic", "Steam", "GOG"]
+
+
+def game_embed(game):
+    """Tek bir oyun için Discord embed'i üretir."""
+    fields = []
+    if game.worth:
+        fields.append({"name": "Normal fiyatı", "value": game.worth, "inline": True})
+    if game.ends_at:
+        unix = int(datetime.fromisoformat(game.ends_at).timestamp())
+        # <t:...:R> Discord'un göreli zaman etiketi: "3 gün içinde" diye
+        # ve her kullanıcının kendi saat diliminde görünür.
+        fields.append({"name": "Son tarih", "value": f"<t:{unix}:R>", "inline": True})
+    return {
+        "title": game.title,
+        "url": game.url,
+        "description": f"**{game.store}**",
+        "color": COLOR_FREE,
+        "fields": fields,
+    }
+
+
+def new_games_payloads(games):
+    """Yeni oyun bildirimini Discord'un embed sınırına göre mesajlara böler."""
+    payloads = []
+    for index in range(0, len(games), EMBED_LIMIT):
+        chunk = games[index:index + EMBED_LIMIT]
+        payload = {"embeds": [game_embed(game) for game in chunk]}
+        if index == 0:
+            adet = "Yeni ücretsiz oyun" if len(games) == 1 else f"{len(games)} yeni ücretsiz oyun"
+            payload["content"] = f"🎁 **{adet}!**"
+        payloads.append(payload)
+    return payloads
+
+
+def weekly_payload(games):
+    """Haftalık özet: mağazaya göre gruplanmış tek mesaj."""
+    if not games:
+        return {"content": "📅 **Haftalık özet** — şu anda ücretsiz oyun yok."}
+
+    lines = ["📅 **Haftalık özet — şu anda ücretsiz olanlar**"]
+    for store in STORE_ORDER:
+        in_store = [game for game in games if game.store == store]
+        if not in_store:
+            continue
+        lines.append(f"\n**{store}**")
+        for game in in_store:
+            suffix = ""
+            if game.ends_at:
+                unix = int(datetime.fromisoformat(game.ends_at).timestamp())
+                suffix = f" — bitiş <t:{unix}:R>"
+            lines.append(f"• [{game.title}](<{game.url}>){suffix}")
+    return {"content": "\n".join(lines)}
+
+
+def post_discord(webhook, payload):
+    """Webhook'a mesaj gönderir. Rate limit'te bir kez tekrar dener.
+
+    Hata mesajlarında webhook URL'i ASLA yer almaz — Actions logları
+    depoya erişimi olan herkes tarafından görülebilir.
+    """
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        webhook, data=data,
+        headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT):
+            return
+    except urllib.error.HTTPError as error:
+        if error.code != 429:
+            raise RuntimeError(f"Discord webhook hatası: HTTP {error.code}") from None
+        wait = min(float(error.headers.get("Retry-After", 5)), 60)
+        print(f"Rate limit, {wait} saniye bekleniyor")
+        time.sleep(wait)
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT):
+            return
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"Discord webhook hatası: HTTP {error.code}") from None
+
+
 def _self_test():
     now = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
 
@@ -321,6 +406,40 @@ def _self_test():
 
     # Bitiş tarihi tam şimdi olan kayıt silinmeli (sınır durumu)
     assert prune_seen({"k": now.isoformat()}, now) == {}
+
+    # --- game_embed ---
+    game = Game("epic:beacon-pines", "Beacon Pines", "Epic",
+                "https://store.epicgames.com/tr/p/beacon-pines", "₺149,00",
+                "2026-08-20T15:00:00+00:00")
+    emb = game_embed(game)
+    assert emb["title"] == "Beacon Pines"
+    assert emb["url"] == game.url
+    assert "Epic" in emb["description"]
+    names = [f["name"] for f in emb["fields"]]
+    assert names == ["Normal fiyatı", "Son tarih"], names
+    # Discord zaman etiketi: <t:UNIX:R> biçiminde olmalı ki herkes kendi saatinde görsün
+    assert emb["fields"][1]["value"] == "<t:1787238000:R>", emb["fields"][1]["value"]
+
+    # Fiyat ve tarih bilinmiyorsa o alanlar hiç eklenmemeli
+    bare = Game("gp:1", "Dwarven Realms", "Steam", "https://x", "", "")
+    assert game_embed(bare)["fields"] == []
+
+    # --- new_games_payloads: Discord bir mesajda en fazla 10 embed alır ---
+    many = [Game(f"k{i}", f"Oyun {i}", "Epic", "https://x", "", "") for i in range(23)]
+    payloads = new_games_payloads(many)
+    assert [len(p["embeds"]) for p in payloads] == [10, 10, 3]
+    assert "content" in payloads[0] and payloads[0]["content"]
+    assert "content" not in payloads[1]  # başlık sadece ilk mesajda
+
+    # --- weekly_payload: mağazaya göre gruplanmış tek mesaj ---
+    weekly = weekly_payload([game, bare])
+    text = weekly["content"]
+    assert "Epic" in text and "Steam" in text
+    assert "Beacon Pines" in text and "Dwarven Realms" in text
+    assert weekly["content"].index("Epic") < weekly["content"].index("Steam")
+
+    # Hiç oyun yoksa da anlamlı bir mesaj çıkmalı
+    assert weekly_payload([])["content"]
 
     print("self-test: TAMAM")
     return 0
