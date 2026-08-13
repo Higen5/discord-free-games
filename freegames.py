@@ -124,6 +124,51 @@ def parse_gamerpower(items, now):
     return games
 
 
+SEEN_FILE = "seen.json"
+DEFAULT_KEEP_DAYS = 90
+
+
+def _normalize(title):
+    """Başlıkları karşılaştırmak için harf/rakam dışındaki her şeyi atar."""
+    return re.sub(r"[^a-z0-9]+", "", title.lower())
+
+
+def dedupe(games):
+    """Aynı oyunun iki kaynaktan gelen kopyalarını teke indirir.
+
+    Listede önce gelen kazanır; çağıran Epic'i başa koyar çünkü Epic'in
+    kendi verisindeki tarihler kesin.
+    """
+    best = {}
+    for game in games:
+        best.setdefault(_normalize(game.title), game)
+    return list(best.values())
+
+
+def load_seen(path):
+    """Bildirilmiş oyunları okur. Dosya yoksa veya bozuksa boş sözlük döner."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def prune_seen(seen, now):
+    """Bitiş tarihi geçmiş kayıtları atar.
+
+    Böylece aynı oyun aylar sonra tekrar bedava olursa yeniden bildirilir.
+    """
+    stamp = now.isoformat()
+    return {key: end for key, end in seen.items() if end > stamp}
+
+
+def save_seen(path, seen):
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(seen, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
 def _self_test():
     now = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
 
@@ -255,6 +300,27 @@ def _self_test():
     assert gp[1].store == "Steam"
     assert gp[1].worth == "", gp[1].worth      # "N/A" boşa çevrilir
     assert gp[1].ends_at == "", gp[1].ends_at  # "N/A" boşa çevrilir
+
+    # --- dedupe ---
+    a = Game("epic:beacon-pines", "Beacon Pines", "Epic",
+             "https://store.epicgames.com/tr/p/beacon-pines", "₺149,00", "")
+    b = Game("gp:999", "beacon pines!", "Epic",
+             "https://www.gamerpower.com/open/beacon", "$14.99", "")
+    c = Game("gp:1000", "Dwarven Realms", "Steam",
+             "https://www.gamerpower.com/open/dwarven", "", "")
+    merged = dedupe([a, b, c])
+    assert [g.key for g in merged] == ["epic:beacon-pines", "gp:1000"], [g.key for g in merged]
+
+    # --- prune_seen ---
+    seen = {
+        "epic:eski": "2026-08-01T00:00:00+00:00",   # süresi dolmuş, silinmeli
+        "epic:yeni": "2026-09-01T00:00:00+00:00",   # sürüyor, kalmalı
+    }
+    pruned = prune_seen(seen, now)
+    assert set(pruned) == {"epic:yeni"}, pruned
+
+    # Bitiş tarihi tam şimdi olan kayıt silinmeli (sınır durumu)
+    assert prune_seen({"k": now.isoformat()}, now) == {}
 
     print("self-test: TAMAM")
     return 0
