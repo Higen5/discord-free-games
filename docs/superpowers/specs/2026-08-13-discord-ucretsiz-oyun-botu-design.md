@@ -12,6 +12,16 @@ Epic Games Store, Steam ve GOG'da ücretsiz dağıtılan oyunları takip edip Di
 
 ## Kapsam dışı (bilinçli olarak)
 
+- **Steam "free weekend" (geçici deneme) etkinlikleri.** Bunlar kalıcı olarak
+  sende kalan oyunlardan farklı — birkaç günlüğüne herkes bedava oynayabilir
+  ama satın almazsın. GamerPower'ın `type=game` uç noktasında bu tür etkinlikler
+  görünmüyor; Steam'in bunun için resmi/belgelenmiş bir API'si de yok (en
+  yakın yol `featuredcategories` uç noktasındaki `specials` listesinde
+  `discount_percent: 100` olan girdileri yakalamak). 2026-08-16'da bilinçli
+  olarak dışarıda bırakıldı: free weekend'ler haftada birkaç kez olduğu için
+  dahil etmek bildirim sıklığını belirgin artırır ve "kalıcı bedava oyun"
+  takibinin amacından sapar.
+
 - Slash komutları, kullanıcı etkileşimi, bildirim rolleri — kullanıcı "sadece bildirim" dedi
 - Gerçek bir Discord bot süreci (gateway bağlantısı, token, izin yönetimi) — tek yönlü mesaj için webhook yeterli
 - GOG için ayrı scraper — aşağıya bakınız
