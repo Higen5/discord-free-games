@@ -22,6 +22,15 @@ Bildirilen oyunlar `seen.json`'a yazılır, böylece aynı oyun iki kez
 duyurulmaz. Kampanyası biten kayıtlar dosyadan temizlenir; bir oyun aylar
 sonra tekrar bedava olursa yeniden bildirilir.
 
+Kimlik kaynaktan bağımsızdır (`<mağaza>:<normalize edilmiş başlık>`). Aynı
+oyun bir kaynaktan düşüp diğerinde kalabildiği için — Epic'in promosyon
+penceresi kapandıktan sonra GamerPower kaydı birkaç saat daha aktif görünür —
+kimlik kaynağa bağlı olsaydı oyun yeni sanılıp tekrar bildirilirdi.
+
+Bildirimler embed olarak gider: başlık, mağaza, normal fiyatı, bitiş tarihi
+(Discord'un göreli zaman etiketiyle, herkesin kendi saat diliminde) ve kapak
+görseli.
+
 ## Kurulum
 
 1. Discord'da hedef kanalda webhook oluştur:
