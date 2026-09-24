@@ -6,6 +6,10 @@ on:
     # = 09:05 TSİ haftalık özetin çıktığı saat; 6, 3'ün katı olduğu için
     # bu çalışma korunur. Aralığı değiştirirsen 6'nın hâlâ dahil olduğundan emin ol.
     - cron: "5 */3 * * *"
+    # GitHub zamanlanmış çalışmaları geciktirir veya atlar (ölçülen: 3 saat
+    # yerine ortalama ~4,5 saat). Epic Perşembe 15:00 UTC'de yenilendiği için
+    # hemen sonrasına üç ek şans: biri atlansa diğeri yakalar.
+    - cron: "10 15-17 * * 4"
   workflow_dispatch:
 
 permissions:
