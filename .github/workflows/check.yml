@@ -2,14 +2,12 @@ name: Ücretsiz oyun kontrolü
 
 on:
   schedule:
-    # 3 saatte bir, :05'te (UTC saatleri 0, 3, 6, 9, ...). Pazartesi 06:05 UTC
-    # = 09:05 TSİ haftalık özetin çıktığı saat; 6, 3'ün katı olduğu için
-    # bu çalışma korunur. Aralığı değiştirirsen 6'nın hâlâ dahil olduğundan emin ol.
-    - cron: "5 */3 * * *"
-    # GitHub zamanlanmış çalışmaları geciktirir veya atlar (ölçülen: 3 saat
-    # yerine ortalama ~4,5 saat). Epic Perşembe 15:00 UTC'de yenilendiği için
-    # hemen sonrasına üç ek şans: biri atlansa diğeri yakalar.
-    - cron: "10 15-17 * * 4"
+    # GitHub'ın izin verdiği en kısa aralık 5 dakika. GitHub yoğunlukta
+    # zamanlanmış çalışmaları geciktirir veya atlar (3 saatlik cron'da ölçülen:
+    # ortalama ~4,5 saat, en uzun boşluk 7,8 saat); sık cron bu boşlukları
+    # küçültür. Haftalık özet ve tekrar bildirimi seen.json ile korunduğu için
+    # sık çalışmak mesaj tekrarına yol açmaz.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:

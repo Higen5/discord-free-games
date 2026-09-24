@@ -84,7 +84,7 @@ seen.json                 # bildirilmiş oyunların kimlikleri
 ### Akış
 
 ```
-saatlik tetikleme
+5 dakikalık tetikleme
       │
       ├─→ Epic endpoint'i çek ──┐
       │                          ├─→ birleştir + tekilleştir ─→ tam liste
@@ -135,9 +135,9 @@ Discord bir mesajda en fazla 10 embed kabul eder; fazlası varsa mesaj bölünü
 
 ## Zamanlama
 
-GitHub Actions cron, saat başı. Epic promosyonları Perşembe 18:00 (TSİ) civarı değişir; saatlik kontrol fazlasıyla yeterli, daha sıkı aralık sadece boşa çalışma üretir.
+GitHub Actions cron, 5 dakikada bir (`*/5 * * * *`) — GitHub'ın izin verdiği en kısa aralık. Amaç bildirim gecikmesini en aza indirmek: GitHub yoğunlukta zamanlanmış çalışmaları geciktiriyor veya atlıyor (3 saatlik cron'da ölçülen: ortalama ~4,5 saat, en uzun boşluk 7,8 saat; Epic'in Perşembe 15:00 UTC yenilenmesi saatlerce bildirilmedi). Sık cron bu boşlukları küçültür, ama GitHub cron'u garanti değildir. Depo public olduğu için Actions dakikası sınırsız.
 
-Haftalık özet ayrı bir workflow değil: script çalışma anının Pazartesi 09:00 (TSİ) olup olmadığına bakar. GitHub Actions UTC kullandığı için cron UTC'ye göre yazılır.
+Haftalık özet ayrı bir workflow değil: script Pazartesi 09:00 TSİ'den itibaren (tüm gün) özet vakti sayar. Dar pencere yerine "tüm gün" seçildi çünkü cron atlarsa özet hiç çıkmazdı. Cron sık çalıştığı için aynı Pazartesi'de defalarca tetiklenir; tekrarı `seen.json`'daki `weekly:<TSİ tarihi>` kaydı engeller (ertesi güne kadar tutulur, sonra `prune_seen` temizler).
 
 Not: GitHub Actions cron'u yoğunlukta birkaç dakika gecikebilir, ayrıca 60 gün boyunca hiç aktivite olmayan depoda zamanlanmış workflow'ları devre dışı bırakır. `seen.json` commit'leri her çalışmada aktivite ürettiği için bu sorun kendiliğinden çözülüyor.
 

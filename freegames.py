@@ -308,11 +308,19 @@ WEEKLY_HOUR = 9      # TSİ
 
 
 def is_weekly_time(now):
-    """Haftalık özetin çıkacağı saat mi? Pencere bir saatlik; cron 3 saatte
-    bir çalışsa da 06:05 UTC (= 09:05 TSİ) çalışmasına denk geldiği için
-    haftada tam bir kez yakalanır."""
+    """Haftalık özet vakti geldi mi: Pazartesi, 09:00 TSİ'den itibaren tüm gün.
+
+    Pencere bilerek dar tutulmadı: GitHub cron'u geciktirebilir veya atlayabilir,
+    dar pencere özetin hiç çıkmamasına yol açardı. Aynı gün tekrar
+    gönderilmesini weekly_key engeller.
+    """
     local = now.astimezone(TZ)
-    return local.weekday() == WEEKLY_WEEKDAY and local.hour == WEEKLY_HOUR
+    return local.weekday() == WEEKLY_WEEKDAY and local.hour >= WEEKLY_HOUR
+
+
+def weekly_key(now):
+    """O günün haftalık özetinin gönderildiğini seen.json'da işaretleyen anahtar."""
+    return f"weekly:{now.astimezone(TZ).date()}"
 
 
 def collect(now):
@@ -371,7 +379,8 @@ def main(argv=None):
     fresh = [game for game in games if game.key not in seen]
 
     payloads = list(new_games_payloads(fresh)) if fresh else []
-    if args.force_weekly or is_weekly_time(now):
+    weekly_due = is_weekly_time(now) and weekly_key(now) not in seen
+    if args.force_weekly or weekly_due:
         payloads.extend(weekly_payloads(games))
 
     if not payloads:
@@ -391,6 +400,9 @@ def main(argv=None):
     default_end = (now + timedelta(days=DEFAULT_KEEP_DAYS)).isoformat()
     for game in fresh:
         seen[game.key] = game.ends_at or default_end
+    if weekly_due:
+        # Ertesi güne kadar sürer; prune_seen sonra temizler.
+        seen[weekly_key(now)] = (now + timedelta(days=1)).isoformat()
     save_seen(SEEN_FILE, seen)
 
     print(f"{len(fresh)} yeni oyun bildirildi.")
@@ -632,9 +644,22 @@ def _self_test():
 
     # --- is_weekly_time: Pazartesi 09:00 TSİ (= 06:00 UTC) ---
     # Pencere bir saat genişliğinde; 3 saatlik cron'un 06:05 UTC çalışması içine düşer.
-    assert is_weekly_time(datetime(2026, 8, 17, 6, 5, tzinfo=timezone.utc))    # Pzt 09:05 TSİ
-    assert not is_weekly_time(datetime(2026, 8, 17, 7, 5, tzinfo=timezone.utc))  # Pzt 10:05
-    assert not is_weekly_time(datetime(2026, 8, 18, 6, 5, tzinfo=timezone.utc))  # Salı
+    # Pencere "Pazartesi 09:00'dan itibaren tüm gün": cron gecikse veya atlasa
+    # bile özet kaçmaz; tekrar gönderimi weekly_key engeller.
+    assert is_weekly_time(datetime(2026, 8, 17, 6, 5, tzinfo=timezone.utc))      # Pzt 09:05 TSİ
+    assert is_weekly_time(datetime(2026, 8, 17, 15, 0, tzinfo=timezone.utc))     # Pzt 18:00 TSİ
+    assert not is_weekly_time(datetime(2026, 8, 17, 5, 55, tzinfo=timezone.utc))  # Pzt 08:55 TSİ
+    assert not is_weekly_time(datetime(2026, 8, 18, 6, 5, tzinfo=timezone.utc))   # Salı
+
+    # 5 dakikada bir çalışan cron aynı Pazartesi'de defalarca tetikler; gün
+    # bazlı anahtar sayesinde özet bir kez gider. Anahtar TSİ gününe göredir.
+    assert weekly_key(datetime(2026, 8, 17, 6, 5, tzinfo=timezone.utc)) == "weekly:2026-08-17"
+    assert weekly_key(datetime(2026, 8, 17, 6, 50, tzinfo=timezone.utc)) == "weekly:2026-08-17"
+    # Anahtar prune_seen'den en az o Pazartesi bitene kadar sağ çıkmalı:
+    ozet_ani = datetime(2026, 8, 17, 6, 5, tzinfo=timezone.utc)
+    kayit = {weekly_key(ozet_ani): (ozet_ani + timedelta(days=1)).isoformat()}
+    assert prune_seen(kayit, datetime(2026, 8, 17, 20, 55, tzinfo=timezone.utc)) == kayit  # Pzt 23:55 TSİ
+    assert prune_seen(kayit, datetime(2026, 8, 18, 6, 6, tzinfo=timezone.utc)) == {}
 
     print("self-test: TAMAM")
     return 0

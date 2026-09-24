@@ -1,6 +1,6 @@
 # Discord Ücretsiz Oyun Botu
 
-Epic Games Store, Steam ve GOG'da ücretsiz dağıtılan oyunları 3 saatte bir
+Epic Games Store, Steam ve GOG'da ücretsiz dağıtılan oyunları 5 dakikada bir
 takip eder, yenisini bulduğunda Discord kanalına bildirim düşer. Pazartesi
 sabahları o an bedava olan her şeyin özetini gönderir.
 
@@ -42,7 +42,7 @@ görseli.
    ```
 
    (veya *Settings → Secrets and variables → Actions → New repository secret*)
-3. *Actions* sekmesinden workflow'u etkinleştir. 3 saatte bir kendi çalışır;
+3. *Actions* sekmesinden workflow'u etkinleştir. 5 dakikada bir kendi çalışır (GitHub yoğunlukta atlayabilir);
    elle denemek için *Run workflow*.
 
 ## Lokal kullanım
