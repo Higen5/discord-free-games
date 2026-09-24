@@ -2,9 +2,10 @@ name: Ücretsiz oyun kontrolü
 
 on:
   schedule:
-    # Her saatin 5. dakikasında (UTC). Pazartesi 06:05 UTC = 09:05 TSİ,
-    # haftalık özetin çıktığı saat.
-    - cron: "5 * * * *"
+    # 3 saatte bir, :05'te (UTC saatleri 0, 3, 6, 9, ...). Pazartesi 06:05 UTC
+    # = 09:05 TSİ haftalık özetin çıktığı saat; 6, 3'ün katı olduğu için
+    # bu çalışma korunur. Aralığı değiştirirsen 6'nın hâlâ dahil olduğundan emin ol.
+    - cron: "5 */3 * * *"
   workflow_dispatch:
 
 permissions:

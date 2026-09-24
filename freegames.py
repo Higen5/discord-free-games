@@ -308,8 +308,9 @@ WEEKLY_HOUR = 9      # TSİ
 
 
 def is_weekly_time(now):
-    """Haftalık özetin çıkacağı saat mi? Cron saat başı çalıştığı için
-    bu pencere bir saatlik ve haftada tam bir kez yakalanır."""
+    """Haftalık özetin çıkacağı saat mi? Pencere bir saatlik; cron 3 saatte
+    bir çalışsa da 06:05 UTC (= 09:05 TSİ) çalışmasına denk geldiği için
+    haftada tam bir kez yakalanır."""
     local = now.astimezone(TZ)
     return local.weekday() == WEEKLY_WEEKDAY and local.hour == WEEKLY_HOUR
 
@@ -630,7 +631,7 @@ def _self_test():
     assert all(f"Numara {i}]" in birlesik for i in range(60))
 
     # --- is_weekly_time: Pazartesi 09:00 TSİ (= 06:00 UTC) ---
-    # Cron saat başı çalışır, bu yüzden pencere tam bir saat genişliğinde.
+    # Pencere bir saat genişliğinde; 3 saatlik cron'un 06:05 UTC çalışması içine düşer.
     assert is_weekly_time(datetime(2026, 8, 17, 6, 5, tzinfo=timezone.utc))    # Pzt 09:05 TSİ
     assert not is_weekly_time(datetime(2026, 8, 17, 7, 5, tzinfo=timezone.utc))  # Pzt 10:05
     assert not is_weekly_time(datetime(2026, 8, 18, 6, 5, tzinfo=timezone.utc))  # Salı
